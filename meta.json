@@ -1,14 +1,14 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
   "module_id": "azeneli:yolov8-tracker",
-  "visibility": "private",
+  "visibility": "public", 
   "url": "https://github.com/anazeneli/yolov8-tracker",
   "description": "Modular vision service: idk",
   "models": [
     {
       "api": "rdk:service:vision",
       "model": "azeneli:yolov8-tracker:yolov8-tracker",
-      "short_description": "Provide a short (100 characters or less) description of this model here",
+      "short_description": "Yolov8-pose + tracking module for person trackin",
       "markdown_link": "README.md#model-azeneliyolov8-trackeryolov8-tracker"
     }
   ],
