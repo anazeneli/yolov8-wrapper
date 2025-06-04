@@ -2,7 +2,7 @@
   "$schema": "https://dl.viam.dev/module.schema.json",
   "module_id": "azeneli:yolov8-2",
   "visibility": "private",
-  "url": "",
+  "url": "https://github.com/anazeneli/yolov8-tracker",
   "description": "Modular vision service: idk",
   "models": [
     {
