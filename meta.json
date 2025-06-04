@@ -15,7 +15,7 @@
   "applications": null,
   "markdown_link": "README.md",
   "entrypoint": "./run.sh",
-  "first_run": "./bin/first_run.sh",
+  "first_run": "",
   "build": {
     "build": "./build.sh",
     "setup": "./setup.sh",
