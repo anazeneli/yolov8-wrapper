@@ -1,15 +1,15 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
-  "module_id": "azeneli:yolov8-2",
+  "module_id": "azeneli:yolov8-tracker",
   "visibility": "private",
   "url": "https://github.com/anazeneli/yolov8-tracker",
   "description": "Modular vision service: idk",
   "models": [
     {
       "api": "rdk:service:vision",
-      "model": "azeneli:yolov8-2:idk",
+      "model": "azeneli:yolov8-tracker:yolov8-tracker",
       "short_description": "Provide a short (100 characters or less) description of this model here",
-      "markdown_link": "README.md#model-azeneliyolov8-2idk"
+      "markdown_link": "README.md#model-azeneliyolov8-trackeryolov8-tracker"
     }
   ],
   "applications": null,

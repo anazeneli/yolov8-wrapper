@@ -3,7 +3,7 @@ This module provides YOLOv8-based object detection and tracking with pose estima
 It processes camera feeds to detect and track objects across predefined zones,
 providing real-time tracking data with zone-based monitoring and transition events.
 
-## Model azeneli:yolov8:yolov8-tracker
+## Model azeneli:yolov8-tracker:yolov8-tracker
 The yolov8-tracker model performs object detection and tracking using YOLOv8 with pose estimation.
 It tracks objects across multiple configurable zones and provides tracking IDs,
 pose keypoints, and zone transition information for comprehensive object monitoring.
