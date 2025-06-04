@@ -1,0 +1,7 @@
+lap
+shapely
+typing-extensions
+ultralytics==8.3.128
+viam-sdk==0.47.0
+torch==2.7.0
+

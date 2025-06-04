@@ -1,0 +1,28 @@
+{
+  "$schema": "https://dl.viam.dev/module.schema.json",
+  "module_id": "azeneli:yolov8-2",
+  "visibility": "private",
+  "url": "",
+  "description": "Modular vision service: idk",
+  "models": [
+    {
+      "api": "rdk:service:vision",
+      "model": "azeneli:yolov8-2:idk",
+      "short_description": "Provide a short (100 characters or less) description of this model here",
+      "markdown_link": "README.md#model-azeneliyolov8-2idk"
+    }
+  ],
+  "applications": null,
+  "markdown_link": "README.md",
+  "entrypoint": "./run.sh",
+  "first_run": "./bin/first_run.sh",
+  "build": {
+    "build": "./build.sh",
+    "setup": "./setup.sh",
+    "path": "dist/archive.tar.gz",
+    "arch": [
+      "linux/amd64",
+      "linux/arm64"
+    ]
+  }
+}
