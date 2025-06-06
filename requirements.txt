@@ -1,7 +1,10 @@
 lap
 shapely
 typing-extensions
-ultralytics==8.3.128
+ultralytics
 viam-sdk==0.47.0
-torch==2.7.0
 
+./build/torch-2.5.0a0+872d972e41.nv24.08.17622132-cp310-cp310-linux_aarch64.whl
+./build/torchvision-0.20.0a0+afc54f7-cp310-cp310-linux_aarch64.whl
+
+pyinstaller

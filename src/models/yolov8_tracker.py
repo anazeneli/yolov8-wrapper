@@ -124,12 +124,11 @@ class Yolov8Tracker(Vision, EasyResource):
         # self.dependencies = dependencies
 
         attrs = struct_to_dict(config.attributes) 
-        LOGGER.info(f"Camera name {attrs["camera_name"]}")
 
         # Camera 
-        camera_component = dependencies[Camera.get_resource_name(attrs["camera_name"])] 
-        self.camera = cast(Camera, camera_component)
-
+        camera_component = dependencies.get(Camera.get_resource_name(str(attrs.get("camera_name"))))
+        #self.camera = cast(Camera, camera_component)
+        self.camera = camera_component
         # Grab path to video folder of images 
         # Load torch codec to load in images + inference at start up 
         # For demo, run inference ahead of time? 
@@ -178,6 +177,7 @@ class Yolov8Tracker(Vision, EasyResource):
             self.device = "cpu"
             self.logger.info("Using CPU device")
 
+        
         return
 
 
@@ -303,6 +303,7 @@ class Yolov8Tracker(Vision, EasyResource):
         # Return int as string for detections class
         return str(current_state)
 
+
     async def get_detections(self, image: ViamImage, *, extra: Optional[Mapping[str, ValueTypes]] = None, timeout: Optional[float] = None) -> List[Detection]:
         detections = []
         
@@ -311,12 +312,11 @@ class Yolov8Tracker(Vision, EasyResource):
             pil_image = viam_to_pil_image(image)  # Convert ViamImage to PIL image
 
             results = self.model.track(pil_image, tracker=self.TRACKER_PATH, persist=True, classes=[0], device=self.device)[0]
-
-            if results is None or results.boxes is None:
-                self.logger.error("No results or bounding boxes found.")
+            self.logger.info(f"PRE RETURN Detection results: {results}")
+            if results is None or len(results.boxes) == 0:
+                self.logger.debug("No results or bounding boxes found.")
                 return detections
 
-            # self.logger.info(f"Detection results: {results}")
 
             for i, (xyxy, conf, track_id) in enumerate(zip(results.boxes.xyxy, results.boxes.conf, results.boxes.id)):
                 # self.logger.info(f"Processing detection {i}: xyxy={xyxy}, conf={conf}, track_id={track_id}")
@@ -339,7 +339,7 @@ class Yolov8Tracker(Vision, EasyResource):
                     queue_state = f"{str(track_id)}_{state}"
                     
                 else:
-                    self.logger.warning(f"No keypoints found for track {track_id}.")
+                    self.logger.debug(f"No keypoints found for track {track_id}.")
                     continue  # Skip this detection if no keypoints
 
                 

@@ -14,14 +14,6 @@
   ],
   "applications": [],
   "markdown_link": "README.md",
-  "entrypoint": "./run.sh",
-  "build": {
-    "build": "./build.sh",
-    "setup": "./setup.sh",
-    "path": "dist/archive.tar.gz",
-    "arch": [
-      "linux/amd64",
-      "linux/arm64"
-    ]
-  }
-}
+  "entrypoint": "main/main",
+  "first_run": "bin/first_run.sh"
+} 
