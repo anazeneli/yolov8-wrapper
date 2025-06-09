@@ -14,6 +14,6 @@
   ],
   "applications": [],
   "markdown_link": "README.md",
-  "entrypoint": "main/main",
+  "entrypoint": "main",
   "first_run": "bin/first_run.sh"
 } 
