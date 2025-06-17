@@ -40,12 +40,14 @@ LABEL_IN = 1 # "queue_in"
 LABEL_SUCCESS = 2 #  "queue_success"
 LABEL_FAIL = 3 #  "queue_fail"
 
-
 WAIT = "WAIT"
 SUCCESS = "SUCCESS"
 FAILURE = "ABANDON"
 ENTER = "ENTER"
+WALK = "WALKING BY"
 
+# Map zone index to state label
+STATES = [WALK, WAIT, SUCCESS, FAILURE]
 
 class Yolov8Tracker(Vision, EasyResource):
     # To enable debug-level logging, either run viam-server with the --debug option,
@@ -56,6 +58,8 @@ class Yolov8Tracker(Vision, EasyResource):
         super().__init__(name=name)
         self.camera_name = None
         self.state_labels: dict[int, str] = {} 
+        # Return current people in tracks 
+        self.current_tracks = {}  # Track ID to state mapping
 
         
     @classmethod
@@ -163,8 +167,18 @@ class Yolov8Tracker(Vision, EasyResource):
             if "zones" in attrs: 
                 # Prepare zones for tracking use 
                 self.zones = self.prepare_zones(attrs["zones"])
+                self.logger.debug(f"Zones prepared: {self.zones}")
+
 
             
+        # Initialize current tracks
+        if self.zones: 
+            # Initialize zones and current tracks
+            self.current_tracks = {zone: [] for zone in self.zones.keys()}
+            # Initialize state for walking by 
+            self.current_tracks[WALK] = []  # Track ID to state mapping for walking by
+            LOGGER.info(f"CURRENT TRACKS  {self.current_tracks}") 
+
         # Check for CUDA (NVIDIA GPU)
         if torch.cuda.is_available():
             self.device = torch.cuda.current_device()
@@ -214,28 +228,46 @@ class Yolov8Tracker(Vision, EasyResource):
         in_queue   = zones[WAIT].contains(point)
         in_fail    = zones[FAILURE].contains(point)
         in_success = zones[SUCCESS].contains(point)
-        entered    = zones[ENTER].contains(point)
-
-        current_state = prev_label
-
-        if in_queue:
-            # Only set in queue if we saw them "ENTER" through queue entrance 
-            # OR if "in_queue for n frames"
-            if not prev_label == LABEL_IN: # : and entered: 
-            #     current_state = LABEL_IN
-            # elif prev_label == LABEL_IN and entered: # likely an exit 
-                current_state = LABEL_IN
-            else: 
-                # Likely still noise
-                current_state = prev_label
+        entered    = zones[ENTER].contains(point) # removed for now
+        # walking_by = zones[WALK].contains(point) # unnecessary, handled by default state
+        
+        # ── State Classification ──
+        if in_queue: 
+            current_state = LABEL_IN
         elif in_fail:
             if prev_label == LABEL_IN or prev_label == LABEL_FAIL:
+                # If we were in queue or failed before, we are still in fail
                 current_state = LABEL_FAIL
-            else: 
-                current_state = prev_label
+            current_state = LABEL_FAIL
+        elif in_success:
+            if prev_label == LABEL_IN or prev_label == LABEL_SUCCESS:
+                current_state = LABEL_SUCCESS
+        else:
+            current_state = LABEL_WALK
 
-        elif in_success: 
-            current_state = LABEL_SUCCESS
+
+        # current_state = prev_label
+        
+        # if in_queue:
+        #     # Only set in queue if we saw them "ENTER" through queue entrance 
+        #     # OR if "in_queue for n frames"
+        #     if not prev_label == LABEL_IN: # : and entered: 
+        #     #     current_state = LABEL_IN
+        #     # elif prev_label == LABEL_IN and entered: # likely an exit 
+        #         current_state = LABEL_IN
+        #     else: 
+        #         # Likely still noise
+        #         current_state = prev_label
+        # elif in_fail:
+        #     if prev_label == LABEL_IN or prev_label == LABEL_FAIL:
+        #         current_state = LABEL_FAIL
+        #     else: 
+        #         current_state = prev_label
+
+        # elif in_success: 
+        #     current_state = LABEL_SUCCESS
+        # else: 
+        #     current_state = LABEL_WALK
 
         return current_state
 
@@ -292,7 +324,7 @@ class Yolov8Tracker(Vision, EasyResource):
         prev_label = self.state_labels.get(track_id, LABEL_WALK)
 
         if len(foot_pts) < 2:
-            return str(prev_label)
+            return prev_label
 
         cx, cy = self.get_centroid(foot_pts)
         current_shapely_point = Point((cx, cy))
@@ -300,23 +332,30 @@ class Yolov8Tracker(Vision, EasyResource):
         current_state = self.classify_by_feet_centroid(current_shapely_point, prev_label, self.zones)
         self.state_labels[track_id] = current_state 
 
-        # Return int as string for detections class
-        return str(current_state)
+        return current_state
 
 
     async def get_detections(self, image: ViamImage, *, extra: Optional[Mapping[str, ValueTypes]] = None, timeout: Optional[float] = None) -> List[Detection]:
         detections = []
-        
+        LOGGER.info(f"GETTING DETECTIONS")
+
         try:
             # Convert to pil image for tracker
             pil_image = viam_to_pil_image(image)  # Convert ViamImage to PIL image
 
             results = self.model.track(pil_image, tracker=self.TRACKER_PATH, persist=True, classes=[0], device=self.device)[0]
-            self.logger.info(f"PRE RETURN Detection results: {results}")
+            LOGGER.info(f"results {results}")
+
             if results is None or len(results.boxes) == 0:
                 self.logger.debug("No results or bounding boxes found.")
                 return detections
 
+            # Reset current tracks for each detection call 
+            self.current_tracks = {zone: [] for zone in self.current_tracks.keys()} 
+            LOGGER.info(f"Current tracks reset: {self.current_tracks}")
+            
+            # Total detections
+            self.logger.debug(f"Total detections: {len(results.boxes)}")
 
             for i, (xyxy, conf, track_id) in enumerate(zip(results.boxes.xyxy, results.boxes.conf, results.boxes.id)):
                 # self.logger.info(f"Processing detection {i}: xyxy={xyxy}, conf={conf}, track_id={track_id}")
@@ -335,8 +374,14 @@ class Yolov8Tracker(Vision, EasyResource):
                     # Get zone state 
                     # TODO: Implement a state change 
                     state = self.get_current_state(track_id, kpts)
+                    LOGGER.info(f"STATES {state} {type(state)}")
 
-                    queue_state = f"{str(track_id)}_{state}"
+                    # Update current tracks with the new state
+                    self.logger.debug(f"Track ID {track_id} in state {state} with keypoints: {kpts}")
+                    LOGGER.info(f"State translation {STATES[state]}")
+                    self.current_tracks[STATES[state]].append(track_id)
+
+                    queue_state = f"{str(track_id)}_{str(state)}"
                     
                 else:
                     self.logger.debug(f"No keypoints found for track {track_id}.")
@@ -382,8 +427,8 @@ class Yolov8Tracker(Vision, EasyResource):
         extra: Optional[Mapping[str, ValueTypes]] = None,
         timeout: Optional[float] = None
     ) -> List[Classification]:
-        self.logger.error("`get_classifications` is not implemented")
-        raise NotImplementedError()
+        self.logger.debug("`get_classifications` is not implemented")
+        pass
 
     async def get_object_point_clouds(
         self,
@@ -392,8 +437,8 @@ class Yolov8Tracker(Vision, EasyResource):
         extra: Optional[Mapping[str, ValueTypes]] = None,
         timeout: Optional[float] = None
     ) -> List[PointCloudObject]:
-        self.logger.error("`get_object_point_clouds` is not implemented")
-        raise NotImplementedError()
+        self.logger.debug("`get_object_point_clouds` is not implemented")
+        pass
 
     async def get_properties(
         self,
@@ -415,6 +460,21 @@ class Yolov8Tracker(Vision, EasyResource):
         timeout: Optional[float] = None,
         **kwargs
     ) -> Mapping[str, ValueTypes]:
-        self.logger.error("`do_command` is not implemented")
-        pass
+
+        # Creates object for tracking values at the current timestamp
+        if command.get("command") == "get_current_tracks":
+            # Log the current state labels
+            self.logger.info(f"Current state labels: {self.current_tracks}")
+
+            # Return the current state labels
+            return {"current_tracks": self.current_tracks}
+        elif command.get("command") == "get_state_labels":
+            # Log the current state labels
+            self.logger.info(f"Current state labels: {self.state_labels}")
+
+            # Return the current state labels
+            return {"state_labels": self.state_labels}
+        else:
+            return {"error": "Command not recognized"}
+        
 
