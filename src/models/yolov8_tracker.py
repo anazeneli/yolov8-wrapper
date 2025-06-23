@@ -230,20 +230,18 @@ class Yolov8Tracker(Vision, EasyResource):
         in_success = zones[SUCCESS].contains(point)
         entered    = zones[ENTER].contains(point) # removed for now
         # walking_by = zones[WALK].contains(point) # unnecessary, handled by default state
-        
+        current_state = LABEL_WALK
+
         # ── State Classification ──
         if in_queue: 
             current_state = LABEL_IN
         elif in_fail:
-            if prev_label == LABEL_IN or prev_label == LABEL_FAIL:
+            # if prev_label == LABEL_IN or prev_label == LABEL_FAIL:
                 # If we were in queue or failed before, we are still in fail
-                current_state = LABEL_FAIL
             current_state = LABEL_FAIL
         elif in_success:
-            if prev_label == LABEL_IN or prev_label == LABEL_SUCCESS:
-                current_state = LABEL_SUCCESS
-        else:
-            current_state = LABEL_WALK
+            # if prev_label == LABEL_IN or prev_label == LABEL_SUCCESS:
+            current_state = LABEL_SUCCESS 
 
 
         # current_state = prev_label
@@ -374,12 +372,10 @@ class Yolov8Tracker(Vision, EasyResource):
                     # Get zone state 
                     # TODO: Implement a state change 
                     state = self.get_current_state(track_id, kpts)
-                    LOGGER.info(f"STATES {state} {type(state)}")
 
                     # Update current tracks with the new state
-                    self.logger.debug(f"Track ID {track_id} in state {state} with keypoints: {kpts}")
-                    LOGGER.info(f"State translation {STATES[state]}")
-                    self.current_tracks[STATES[state]].append(track_id)
+                    self.logger.debug(f"Track ID {track_id} in state {state} ")
+                    self.current_tracks[STATES[state]].append(int(track_id))
 
                     queue_state = f"{str(track_id)}_{str(state)}"
                     
@@ -467,13 +463,7 @@ class Yolov8Tracker(Vision, EasyResource):
             self.logger.info(f"Current state labels: {self.current_tracks}")
 
             # Return the current state labels
-            return {"current_tracks": self.current_tracks}
-        elif command.get("command") == "get_state_labels":
-            # Log the current state labels
-            self.logger.info(f"Current state labels: {self.state_labels}")
-
-            # Return the current state labels
-            return {"state_labels": self.state_labels}
+            return {"current_tracks": self.current_tracks} 
         else:
             return {"error": "Command not recognized"}
         
