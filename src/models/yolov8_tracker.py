@@ -102,7 +102,6 @@ class Yolov8Tracker(Vision, EasyResource):
             raise ValueError("camera is required and must be a string")
         required_dependencies.append(attrs["camera_name"])
 
-
         # Validate detector model location 
         if "model_location" not in attrs or not isinstance(attrs["model_location"], str):
             raise ValueError("model_location is a required path to your model weights file (.pt) ")
@@ -334,8 +333,7 @@ class Yolov8Tracker(Vision, EasyResource):
 
 
     async def get_detections(self, image: ViamImage, *, extra: Optional[Mapping[str, ValueTypes]] = None, timeout: Optional[float] = None) -> List[Detection]:
-        detections = []
-        LOGGER.info(f"GETTING DETECTIONS")
+        detections = [] 
 
         try:
             # Convert to pil image for tracker
@@ -349,8 +347,7 @@ class Yolov8Tracker(Vision, EasyResource):
                 return detections
 
             # Reset current tracks for each detection call 
-            self.current_tracks = {zone: [] for zone in self.current_tracks.keys()} 
-            LOGGER.info(f"Current tracks reset: {self.current_tracks}")
+            self.current_tracks = {zone: [] for zone in self.current_tracks.keys()}  
             
             # Total detections
             self.logger.debug(f"Total detections: {len(results.boxes)}")
@@ -397,10 +394,10 @@ class Yolov8Tracker(Vision, EasyResource):
                 try:
                     detections.append(Detection(**detection))
                 except TypeError as e:
-                    self.logger.error(f"Error creating Detection: {str(e)} with data: {detection}")
+                    self.logger.debug(f"Error creating Detection: {str(e)} with data: {detection}")
 
         except Exception as e:
-            self.logger.error(f"Error in get_detections: {str(e)}")
+            self.logger.debug(f"Error in get_detections: {str(e)}")
 
         return detections
 
