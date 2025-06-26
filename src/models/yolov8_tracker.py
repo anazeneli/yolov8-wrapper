@@ -176,7 +176,7 @@ class Yolov8Tracker(Vision, EasyResource):
             self.current_tracks = {zone: [] for zone in self.zones.keys()}
             # Initialize state for walking by 
             self.current_tracks[WALK] = []  # Track ID to state mapping for walking by
-            LOGGER.info(f"CURRENT TRACKS  {self.current_tracks}") 
+            
 
         # Check for CUDA (NVIDIA GPU)
         if torch.cuda.is_available():
@@ -215,7 +215,6 @@ class Yolov8Tracker(Vision, EasyResource):
                 dict: Processed zones with the same structure.
         """ 
         # convert to numpy arrays
-        LOGGER.info(f"ZONES {zones}")
         for zone_name, polygon in zones.items():            
             zones[zone_name] = Polygon(polygon)
 
@@ -340,7 +339,6 @@ class Yolov8Tracker(Vision, EasyResource):
             pil_image = viam_to_pil_image(image)  # Convert ViamImage to PIL image
 
             results = self.model.track(pil_image, tracker=self.TRACKER_PATH, persist=True, classes=[0], device=self.device)[0]
-            LOGGER.info(f"results {results}")
 
             if results is None or len(results.boxes) == 0:
                 self.logger.debug("No results or bounding boxes found.")
@@ -457,7 +455,7 @@ class Yolov8Tracker(Vision, EasyResource):
         # Creates object for tracking values at the current timestamp
         if command.get("command") == "get_current_tracks":
             # Log the current state labels
-            self.logger.info(f"Current state labels: {self.current_tracks}")
+            self.logger.debug(f"Current state labels: {self.current_tracks}")
 
             # Return the current state labels
             return {"current_tracks": self.current_tracks} 

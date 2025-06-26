@@ -53,7 +53,7 @@ $(PYINSTALLER_DISTPATH)/main: $(BUILD)/$(TORCHVISION_WHEEL)
 	$(PYTHON) -m pip install -r $(REQUIREMENTS)
 	$(PYTHON) -m pip install 'numpy<2' $(BUILD)/$(PYTORCH_WHEEL)
 	$(PYTHON) -m pip install $(BUILD)/$(TORCHVISION_WHEEL)
-	$(PYTHON) -m PyInstaller --workpath "$(PYINSTALLER_WORKPATH)" --distpath "$(PYINSTALLER_DISTPATH)" src/main.py
+	$(PYTHON) -m PyInstaller --workpath "$(PYINSTALLER_WORKPATH)" --distpath "$(PYINSTALLER_DISTPATH)" main.spec
 
 
 
