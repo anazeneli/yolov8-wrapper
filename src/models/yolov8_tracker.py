@@ -194,16 +194,6 @@ class Yolov8Tracker(Vision, EasyResource):
         return
 
 
-    def get_centroid(self, points: list) -> tuple[int, int]:
-        """Calculate the centroid of a list of points."""
-        if not points:
-            return None
-        cx = int(sum(p[0] for p in points) / len(points))
-        cy = int(sum(p[1] for p in points) / len(points))
-        
-        return cx, cy
-
-
     def prepare_zones(self, zones):
         """
             Prepare and process zone data.
@@ -240,30 +230,6 @@ class Yolov8Tracker(Vision, EasyResource):
         elif in_success:
             # if prev_label == LABEL_IN or prev_label == LABEL_SUCCESS:
             current_state = LABEL_SUCCESS 
-
-
-        # current_state = prev_label
-        
-        # if in_queue:
-        #     # Only set in queue if we saw them "ENTER" through queue entrance 
-        #     # OR if "in_queue for n frames"
-        #     if not prev_label == LABEL_IN: # : and entered: 
-        #     #     current_state = LABEL_IN
-        #     # elif prev_label == LABEL_IN and entered: # likely an exit 
-        #         current_state = LABEL_IN
-        #     else: 
-        #         # Likely still noise
-        #         current_state = prev_label
-        # elif in_fail:
-        #     if prev_label == LABEL_IN or prev_label == LABEL_FAIL:
-        #         current_state = LABEL_FAIL
-        #     else: 
-        #         current_state = prev_label
-
-        # elif in_success: 
-        #     current_state = LABEL_SUCCESS
-        # else: 
-        #     current_state = LABEL_WALK
 
         return current_state
 
@@ -314,23 +280,6 @@ class Yolov8Tracker(Vision, EasyResource):
         return await self.get_detections(image)
     
 
-    def get_current_state(self, track_id, keypoints): 
-        foot_pts = [point for point in keypoints[13:17] if point[0] > 5 and point[1] > 5] # feet & knees
-        current_state = LABEL_WALK
-        prev_label = self.state_labels.get(track_id, LABEL_WALK)
-
-        if len(foot_pts) < 2:
-            return prev_label
-
-        cx, cy = self.get_centroid(foot_pts)
-        current_shapely_point = Point((cx, cy))
-        
-        current_state = self.classify_by_feet_centroid(current_shapely_point, prev_label, self.zones)
-        self.state_labels[track_id] = current_state 
-
-        return current_state
-
-
     async def get_detections(self, image: ViamImage, *, extra: Optional[Mapping[str, ValueTypes]] = None, timeout: Optional[float] = None) -> List[Detection]:
         detections = [] 
 
@@ -358,27 +307,26 @@ class Yolov8Tracker(Vision, EasyResource):
                 confidence = round(conf.item(), 4)
                 track_id = int(track_id.item())  # Ensure track_id is an integer
 
-                # # Log bounding box and confidence types
-                # self.logger.info(f"Bounding Box Type: {type(x1)}, {type(y1)}, {type(x2)}, {type(y2)}")
-                # self.logger.info(f"Confidence Type: {type(confidence)}, Track ID Type: {type(track_id)}")
-
-                if results.keypoints is not None:
-                    kpts = results.keypoints.xy[i].tolist()
-                    # Get zone state 
-                    # TODO: Implement a state change 
-                    state = self.get_current_state(track_id, kpts)
-
-                    # Update current tracks with the new state
-                    self.logger.debug(f"Track ID {track_id} in state {state} ")
-                    self.current_tracks[STATES[state]].append(int(track_id))
-
-                    queue_state = f"{str(track_id)}_{str(state)}"
-                    
-                else:
-                    self.logger.debug(f"No keypoints found for track {track_id}.")
-                    continue  # Skip this detection if no keypoints
-
+                # Calculate the bottom-center of the bounding box to approximate foot position.
+                bottom_center_x = x1 + (x2 - x1) / 2
+                bottom_center_y = y2  # The bottom edge of the box
                 
+                # Create a point representing the person's location on the ground.
+                ground_position = Point((bottom_center_x, bottom_center_y))
+
+                # Get the person's previous state for context.
+                prev_label = self.state_labels.get(track_id, LABEL_WALK)
+                
+                # Classify the new point to get the current state.
+                state = self.classify_by_feet_centroid(ground_position, prev_label, self.zones)
+                
+                # Update the state for the current track ID.
+                self.state_labels[track_id] = state 
+                
+                queue_state = f"{str(track_id)}_{str(state)}"
+                
+                self.current_tracks[STATES[state]].append(int(track_id))
+
                 # Prepare detection data
                 detection = {
                     "class_name": queue_state, 
