@@ -326,7 +326,11 @@ class Yolov8Tracker(Vision, EasyResource):
                 queue_state = f"{str(track_id)}_{str(state)}"
                 
                 self.current_tracks[STATES[state]].append(int(track_id))
-
+                
+                # # Filter unlikely persons
+                # if confidence < 0.4: 
+                #     continue
+                
                 # Prepare detection data
                 detection = {
                     "class_name": queue_state, 
