@@ -55,12 +55,14 @@ $(PYINSTALLER_DISTPATH)/main: $(BUILD)/$(TORCHVISION_WHEEL)
 	$(PYTHON) -m pip install $(BUILD)/$(TORCHVISION_WHEEL)
 	$(PYTHON) -m PyInstaller --workpath "$(PYINSTALLER_WORKPATH)" --distpath "$(PYINSTALLER_DISTPATH)" main.spec
 
-
-
 pyinstaller: $(PYINSTALLER_DISTPATH)/main
 
 clean-pyinstaller:
 	rm -rf $(PYINSTALLER_DISTPATH) $(PYINSTALLER_WORKPATH)
+
+module.tar.gz: $(PYINSTALLER_DISTPATH)/main
+	cp $(PYINSTALLER_DISTPATH)/main ./
+	tar -czvf module.tar.gz main meta.json
 
 setup: torchvision-wheel 
 

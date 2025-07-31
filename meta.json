@@ -1,15 +1,15 @@
 {
   "$schema": "https://dl.viam.dev/module.schema.json",
-  "module_id": "azeneli:yolov8-tracker",
+  "module_id": "azeneli:yolov8",
   "visibility": "public",
-  "url": "https://github.com/anazeneli/yolov8-tracker",
-  "description": "Modular vision service for yolov8 tracking.",
+  "url": "https://github.com/anazeneli/yolov8-wrapper",
+  "description": "Modular vision service wrapping yolov8 detector and tracker.",
   "models": [
     {
       "api": "rdk:service:vision",
-      "model": "azeneli:yolov8-tracker:yolov8-tracker",
-      "short_description": "Yolov8-pose + tracking module for person tracking",
-      "markdown_link": "README.md#model-azeneliyolov8-trackeryolov8-tracker"
+      "model": "azeneli:yolov8:yolov8",
+      "short_description": "Yolov8 wrapper. Detection. Tracking. Optional zones.",
+      "markdown_link": "README.md#model-azeneliyolov8-yolov8"
     }
   ],
   "applications": [],

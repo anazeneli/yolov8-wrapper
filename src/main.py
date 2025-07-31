@@ -1,10 +1,10 @@
 import asyncio
 from viam.module.module import Module
 try:
-    from src.models.yolov8_tracker import Yolov8Tracker
+    from src.models.yolov8 import Yolov8
 except ModuleNotFoundError:
     # when running as local module with run.sh
-    from .models.yolov8_tracker import Yolov8Tracker
+    from .models.yolov8 import Yolov8
 
 
 if __name__ == '__main__':
