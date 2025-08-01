@@ -4,6 +4,8 @@ from functools import wraps
 from pathlib import Path
 from typing import ClassVar, Final, List, Mapping, Optional, Sequence, Tuple, Dict
 from urllib.request import urlretrieve
+import io
+from contextlib import redirect_stdout, redirect_stderr
 
 # Third-party imports
 import torch
@@ -11,6 +13,7 @@ from shapely.geometry import Point, Polygon
 from typing_extensions import Self
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
+from ultralytics.utils import LOGGER as ultra_logger
 
 # Viam imports (third-party framework)
 from viam.components.camera import Camera, ViamImage
@@ -26,7 +29,11 @@ from viam.services.vision import *
 from viam.utils import ValueTypes, struct_to_dict
 
 LOGGER = getLogger(__name__)
+ 
+# Suppress YOLO logging 
+ultra_logger.disabled = True
 
+ 
 # Set up decorator for debug logs 
 def log_entry(func):
     """A decorator that logs entry into a class method using self.logger."""
@@ -215,7 +222,7 @@ class Yolov8(Vision, EasyResource):
         
         # Model location with known default 
         model_location = attrs.get("model_location", "yolov8n.pt")
-        self.model = YOLO(model_location) 
+        self.model = YOLO(model_location, verbose=False) # Change verbose to true for robust logging 
 
         # If class_ids_to_use is None, YOLO detects all.
         detection_classes = attrs.get("classes", None)
@@ -289,7 +296,7 @@ class Yolov8(Vision, EasyResource):
         Returns:
             Dict[str, Polygon]: Dictionary with Shapely Polygon objects as values
         """
-        # convert to numpy arrays
+        # Convert to Polygon arrays
         for zone_name, polygon in zones.items():            
             zones[zone_name] = Polygon(polygon)
 
@@ -501,20 +508,20 @@ class Yolov8(Vision, EasyResource):
             List[Detection]: List of detected persons with class names like 
                             "person_0", "person_1", etc. No tracking or zone states.
         """
-        self.logger.info(f"IN GET DETECTIONS ONLY")
         detections = []
         
         try:
             # Convert to PIL image
             pil_image = viam_to_pil_image(image)
             
-            # Simple detection (no tracking)
-            results = self.model(
-                pil_image,                    # Input image for inference
-                classes=self.detection_classes,  # Filter to only these class IDs (or None for all)
-                device=self.device            # Run on CPU/GPU/MPS
-            )[0]  # Get first result from batch (since we're processing 1 image)
-            
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                # Simple detection (no tracking)
+                results = self.model(
+                    pil_image,                    # Input image for inference
+                    classes=self.detection_classes,  # Filter to only these class IDs (or None for all)
+                    device=self.device            # Run on CPU/GPU/MPS
+                )[0]  # Get first result from batch (since we're processing 1 image)
+                
             if results is None or len(results.boxes) == 0:
                 self.logger.debug("No detections found.")
                 return detections
@@ -581,13 +588,14 @@ class Yolov8(Vision, EasyResource):
             pil_image = viam_to_pil_image(image)
             
             # Tracking mode
-            results = self.model.track(
-                pil_image, 
-                tracker=self.TRACKER_PATH, 
-                persist=True, 
-                classes=self.detection_classes, 
-                device=self.device
-            )[0]
+            with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                results = self.model.track(
+                    pil_image, 
+                    tracker=self.TRACKER_PATH, 
+                    persist=True, 
+                    classes=self.detection_classes, 
+                    device=self.device
+                )[0]
             
             if results is None or len(results.boxes) == 0:
                 self.logger.debug("No tracking results found.")
