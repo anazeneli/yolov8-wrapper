@@ -9,7 +9,7 @@
       "api": "rdk:service:vision",
       "model": "azeneli:yolov8:yolov8",
       "short_description": "Yolov8 wrapper. Detection. Tracking. Optional zones.",
-      "markdown_link": "README.md#model-azeneliyolov8-yolov8"
+      "markdown_link": "README.md#model-azeneliyolov8yolov8"
     }
   ],
   "applications": [],

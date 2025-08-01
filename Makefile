@@ -62,7 +62,7 @@ clean-pyinstaller:
 
 module.tar.gz: $(PYINSTALLER_DISTPATH)/main
 	cp $(PYINSTALLER_DISTPATH)/main ./
-	tar -czvf module.tar.gz main meta.json
+	tar -czvf module.tar.gz main meta.json first_run.sh
 
 setup: torchvision-wheel 
 

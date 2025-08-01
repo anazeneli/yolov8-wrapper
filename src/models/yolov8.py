@@ -207,9 +207,7 @@ class Yolov8(Vision, EasyResource):
     def reconfigure(
         self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
     ) -> None:
-        print("=== RECONFIGURE STARTING ===")
         attrs = struct_to_dict(config.attributes)
-        print(f"Config: {attrs}")
 
         # Camera 
         camera_component = dependencies.get(Camera.get_resource_name(str(attrs.get("camera_name"))))
