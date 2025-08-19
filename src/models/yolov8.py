@@ -1,5 +1,17 @@
-# Standard library imports
+
+# ================================================================================================
+# YOLO Vision Service for Viam Robotics Platform
+# ================================================================================================
+# A comprehensive computer vision service that provides:
+# - Object detection using YOLOv8
+# - Multi-object tracking with persistent IDs (BoTSORT/ByteTrack)
+# - Re-identification (ReID) for robust tracking
+# - Zone-based state classification for queue management
+# - GPU acceleration support (CUDA, Apple MPS)
+# ================================================================================================
+
 import os
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import ClassVar, Final, List, Mapping, Optional, Sequence, Tuple, Dict
@@ -8,12 +20,13 @@ import io
 from contextlib import redirect_stdout, redirect_stderr
 
 # Third-party imports
-import torch
 from shapely.geometry import Point, Polygon
+import torch
 from typing_extensions import Self
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 from ultralytics.utils import LOGGER as ultra_logger
+import yaml
 
 # Viam imports (third-party framework)
 from viam.components.camera import Camera, ViamImage
@@ -83,6 +96,11 @@ class Yolov8(Vision, EasyResource):
         # Return current people in tracks 
         self.current_tracks = {}  # Track ID to state mapping
         self.logger = getLogger(name)
+            
+        # Configuration flags (set during reconfigure)
+        self.tracking_enabled = False
+        self.zones_enabled = False
+        self.reid_enabled = False
 
         
     @classmethod
@@ -104,11 +122,226 @@ class Yolov8(Vision, EasyResource):
     
     @classmethod
     def check_file_path(cls, file_path) -> bool:
-        """Check if file path exists and is accessible"""
+        """Check if file path exists and is accessible (local files only)"""
+        if not file_path or not isinstance(file_path, str):
+            return False
+        return os.path.exists(file_path)
+
+    @classmethod
+    def parse_yolo_yaml(cls, yaml_path: str) -> Optional[str]:
+        """
+        Parse a YOLO YAML configuration file to extract the model path.
+        
+        Args:
+            yaml_path: Path to the YAML configuration file
+            
+        Returns:
+            str: Model path if found, None otherwise
+        """
+        try:
+            with open(yaml_path, 'r') as f:
+                yaml_content = yaml.safe_load(f)
+            
+            # Common keys where model path might be specified in YOLO configs
+            model_keys = ['model', 'path', 'weights', 'model_path', 'pt_path']
+            
+            for key in model_keys:
+                if key in yaml_content:
+                    model_path = yaml_content[key]
+                    if model_path and isinstance(model_path, str):
+                        LOGGER.info(f"Found model path in YAML under '{key}': {model_path}")
+                        return model_path
+            
+            LOGGER.warning(f"No model path found in YAML file: {yaml_path}")
+            return None
+            
+        except yaml.YAMLError as e:
+            LOGGER.error(f"Invalid YAML format in file {yaml_path}: {e}")
+            return None
+        except Exception as e:
+            LOGGER.error(f"Error reading YAML file {yaml_path}: {e}")
+            return None
+
+    @classmethod
+    def _parse_tracker_config(cls, config_path: str) -> dict:
+        """Parse tracker YAML configuration file and resolve ReID model paths"""
+        try:
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+            
+            if not config:
+                return {}
+            
+            # If ReID is enabled and has a model path, resolve it
+            if config.get('with_reid', False) and config.get('model'):
+                original_path = config['model']
+                try:
+                    resolved_path = cls.resolve_model_path(original_path, "reid")
+                    config['model'] = resolved_path
+                    LOGGER.info(f"Resolved ReID model path: {original_path} -> {resolved_path}")
+                except FileNotFoundError as e:
+                    LOGGER.error(f"ReID model path resolution failed: {e}")
+                    raise
+            
+            return config
+            
+        except yaml.YAMLError as e:
+            raise ValueError(f"Invalid YAML format in tracker config: {e}")
+        except Exception as e:
+            raise ValueError(f"Error reading tracker config file: {e}")
+
+    
+    @classmethod
+    def is_yolo_default_model(cls, model_path: str) -> bool:
+        """Check if model path is a YOLO default model"""
+        if not model_path or not isinstance(model_path, str):
+            return False
+        return model_path.startswith('yolov8') and model_path.endswith('.pt')
+    
+    @classmethod
+    def is_local_file(cls, file_path: str) -> bool:
+        """Check if file path exists locally"""
         if not file_path or not isinstance(file_path, str):
             return False
         return os.path.exists(file_path)
     
+    @classmethod
+    def is_yaml_file(cls, file_path: str) -> bool:
+        """Check if file path is a YAML file"""
+        if not file_path or not isinstance(file_path, str):
+            return False
+        return file_path.lower().endswith(('.yaml', '.yml'))
+    
+    @classmethod
+    def resolve_model_path(cls, model_location: str, context: str = "detection") -> str:
+        """
+        Resolve model path from various sources and apply routing logic.
+        
+        Args:
+            model_location: The model location from config (could be path, YAML, etc.)
+            context: Context for the model ("detection" or "reid")
+            
+        Returns:
+            str: Resolved model path
+            
+        Raises:
+            FileNotFoundError: If custom model path cannot be resolved and no fallback available
+        """
+        if not model_location or not isinstance(model_location, str):
+            if context == "detection":
+                LOGGER.info("Model location not specified. Defaulting to yolov8n.pt")
+                return "yolov8n.pt"
+            else:
+                raise FileNotFoundError(f"Model location required for {context} but not specified")
+        
+        # If it's a YAML file, try to extract model path from it
+        if cls.is_yaml_file(model_location):
+            if cls.is_local_file(model_location):
+                LOGGER.info(f"Parsing YAML config file: {model_location}")
+                extracted_path = cls.parse_yolo_yaml(model_location)
+                if extracted_path:
+                    # Recursively resolve the extracted path
+                    return cls.resolve_model_path(extracted_path, context)
+                else:
+                    if context == "detection":
+                        LOGGER.warning(f"Could not extract model path from YAML {model_location}, using default")
+                        return "yolov8n.pt"
+                    else:
+                        raise FileNotFoundError(f"Could not extract model path from YAML {model_location}")
+            else:
+                if context == "detection":
+                    LOGGER.warning(f"YAML file not found: {model_location}, using default")
+                    return "yolov8n.pt"
+                else:
+                    raise FileNotFoundError(f"YAML file not found: {model_location}")
+        
+        # Check if it's a YOLO default model
+        if cls.is_yolo_default_model(model_location):
+            LOGGER.info(f"Using YOLO default model: {model_location}")
+            return model_location
+        
+        # Check if it's a local file
+        if cls.is_local_file(model_location):
+            LOGGER.info(f"Using local model file: {model_location}")
+            return model_location
+        
+        # File not found - apply context-specific fallback
+        if context == "detection":
+            LOGGER.warning(f"Model file not found: {model_location}, using default yolov8n.pt")
+            return "yolov8n.pt"
+        else:
+            raise FileNotFoundError(f"Custom {context} model file not found: {model_location}")
+    
+    @classmethod
+    def validate_file_path(cls, file_path: str, file_type: str = "file") -> tuple[bool, str]:
+        """
+        Validate file path and return validation result with description
+        
+        Args:
+            file_path: Path to validate
+            file_type: Type of file for error messages (e.g., "model", "tracker config")
+            
+        Returns:
+            tuple: (is_valid: bool, description: str)
+        """
+        if not file_path or not isinstance(file_path, str):
+            return False, f"{file_type} path is empty or invalid"
+        
+        if cls.is_yolo_default_model(file_path):
+            return True, f"YOLO default {file_type}"
+        
+        if cls.is_local_file(file_path):
+            return True, f"Local {file_type}"
+        
+        return False, f"Local {file_type} not found at path: {file_path}"
+    
+    @classmethod
+    def validate_tracker_config(cls, tracker_config: str) -> dict:
+        """Validate tracker config and return parsed ReID settings"""
+        if not isinstance(tracker_config, str):
+            raise TypeError("tracker_config_location must be a string path to your config file")
+        
+        is_valid, description = cls.validate_file_path(tracker_config, "tracker config")
+        
+        if not is_valid:
+            raise FileNotFoundError(description)
+        
+        LOGGER.info(f"Using {description}: {tracker_config}")
+        
+        # Only parse local files
+        if cls.is_local_file(tracker_config):
+            return cls._parse_tracker_config(tracker_config)
+        
+        return {}
+    
+    def _detect_and_set_device(self) -> str:
+        """
+        Detect and set the best available device for inference.
+        
+        Priority order:
+        1. CUDA (NVIDIA GPU) - if available
+        2. MPS (Apple Silicon GPU) - if available  
+        3. CPU - fallback
+        
+        Returns:
+            str: The device identifier that was set
+        """
+        # Check for CUDA (NVIDIA GPU)
+        if torch.cuda.is_available():
+            device_id = torch.cuda.current_device()
+            self.device = f"cuda:{device_id}"
+            device_name = torch.cuda.get_device_name(device_id)
+            self.logger.info(f"Using CUDA device {self.device}: {device_name}")
+        
+        # Check for Mac Metal Performance Shaders (Apple Silicon)
+        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+            self.device = "mps"
+            self.logger.info("Using Mac GPU (Metal Performance Shaders)")
+        
+        # Fallback to CPU
+        else:
+            self.device = "cpu"
+            self.logger.info("Using CPU device")
 
     @classmethod
     def validate_config(
@@ -128,28 +361,20 @@ class Yolov8(Vision, EasyResource):
         optional_dependencies, required_dependencies = [], []
         attrs = struct_to_dict(config.attributes)
 
-        # # Validate required dependencies 
+        # Validate required dependencies 
         # Validate camera name
         if "camera_name" not in attrs or not isinstance(attrs["camera_name"], str):
             raise ValueError("camera is required and must be a string")
         required_dependencies.append(attrs["camera_name"])
 
-        # Validate model location or default to YOLOv8n
+        # Validate model location with new resolution logic
         try:
             model_location = attrs.get("model_location")
             LOGGER.info(f"Detection enabled")
             
-            # Check 1: If model_location not in config, default to yolov8n.pt
-            if not model_location or not isinstance(model_location, str):
-                LOGGER.info("Model location not specified. Default is yolov8 nano") 
-            # Check 2: If it's a YOLO default model, let YOLO handle it automatically
-            elif model_location.startswith('yolov8') and model_location.endswith('.pt'):
-                LOGGER.info(f"Using YOLO default model: {model_location}")
-            # Check 3: Custom model path - must exist locally
-            elif not cls.check_file_path(model_location):
-                raise FileNotFoundError(f"Custom model file not found at path: {model_location}")
-            else:
-                LOGGER.info(f"Using custom model: {model_location}")
+            # Use the new resolve_model_path method
+            resolved_model = cls.resolve_model_path(model_location, "detection")
+            LOGGER.info(f"Model validation passed: {resolved_model}")
                 
         except FileNotFoundError as e:
             LOGGER.error(f"Model file error: {e}")
@@ -176,10 +401,10 @@ class Yolov8(Vision, EasyResource):
             except (ValueError, TypeError) as e:
                 raise ValueError(f"Configuration error: All items in 'classes' must be numeric strings convertible to integers. Error: {e}")
 
-
+        # Validate tracking configuration 
         try:
             if "tracker_config_location" in attrs:
-                LOGGER.info(f"Tracking enabled")
+                LOGGER.info(f"Tracking configuration found")
                 
                 tracker_config = attrs.get("tracker_config_location")
                 
@@ -188,14 +413,18 @@ class Yolov8(Vision, EasyResource):
                 
                 if not cls.check_file_path(tracker_config):
                     raise FileNotFoundError(f"Tracker config file not found at path: {tracker_config}")
-
-                # Validate zones if tracking is enabled
-                if "zones" in attrs:
-                    if not isinstance(attrs["zones"], dict):
-                        raise TypeError("zones must be a dictionary of polygon list coordinates")
+                else:
+                    LOGGER.info(f"Using local tracker config: {tracker_config}")
+                    
+                    # Parse tracker config for ReID settings with new resolution logic
+                    reid_config = cls._parse_tracker_config(tracker_config)
+                    if reid_config.get('with_reid', False) and reid_config.get('model'):
+                        # ReID model path is already resolved in _parse_tracker_config
+                        LOGGER.info("ReID model validation passed")
+                    else:
+                        LOGGER.info("Tracking enabled without ReID")
             else:
-                # tracker_config_location not provided - detection only mode
-                LOGGER.info("Detection only mode - no tracking enabled")
+                LOGGER.info("No tracking configuration - detection only mode")
                         
         except FileNotFoundError as e:
             LOGGER.error(f"Tracker config file error: {e}")
@@ -206,101 +435,151 @@ class Yolov8(Vision, EasyResource):
         except Exception as e:
             LOGGER.error(f"Error validating tracker configuration: {e}")
             raise ValueError(f"Invalid tracker configuration: {e}")
-                    
-
+                        
+        # Validate zones configuration (independent of tracking)
+        try:
+            if "zones" in attrs:
+                LOGGER.info(f"Zone configuration found")
+                if not isinstance(attrs["zones"], dict):
+                    raise TypeError("zones must be a dictionary of polygon list coordinates")
+                LOGGER.info(f"Zones validation passed: {list(attrs['zones'].keys())}")
+            else:
+                LOGGER.info("No zone configuration")
+                        
+        except TypeError as e:
+            LOGGER.error(f"Zone configuration type error: {e}")
+            raise
+        except Exception as e:
+            LOGGER.error(f"Error validating zone configuration: {e}")
+            raise ValueError(f"Invalid zone configuration: {e}")
+        
         return required_dependencies, optional_dependencies
 
 
     def reconfigure(
-        self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
-    ) -> None:
-        attrs = struct_to_dict(config.attributes)
+            self, config: ComponentConfig, dependencies: Mapping[ResourceName, ResourceBase]
+        ) -> None:
+            attrs = struct_to_dict(config.attributes)
 
-        # Camera 
-        camera_component = dependencies.get(Camera.get_resource_name(str(attrs.get("camera_name"))))
-        self.camera = camera_component
-        
-        # Model location with known default 
-        model_location = attrs.get("model_location", "yolov8n.pt")
-        self.model = YOLO(model_location, verbose=False) # Change verbose to true for robust logging 
-
-        # If class_ids_to_use is None, YOLO detects all.
-        detection_classes = attrs.get("classes", None)
-        if not detection_classes: 
-            self.logger.debug(f"Config variable classes not set. Default to all YOLO classes.")
-            self.detection_classes = None  # YOLO will detect all classes when None
-            self.class_names = self.model.names  # ← Keep as dict: {0: "person", 1: "bicycle", ...}
-            self.logger.info(f"No classes specified. Will detect all {len(self.class_names)} classes from model.")
-
-        else:
-            detection_classes = [int(item) for item in detection_classes]
+            # Camera 
+            camera_component = dependencies.get(Camera.get_resource_name(str(attrs.get("camera_name"))))
+            self.camera = camera_component
             
-            # Validate classes exist in this model
-            valid_classes = [id for id in detection_classes if id in self.model.names]
-            invalid_classes = [id for id in detection_classes if id not in self.model.names]
-            
-            if invalid_classes:
-                self.logger.warning(f"Invalid class IDs {invalid_classes} for this model. Available: {list(self.model.names.keys())}")
+            # Model location with new resolution logic
+            model_location = attrs.get("model_location")
+            resolved_model_path = self.resolve_model_path(model_location, "detection")
+            self.model = YOLO(resolved_model_path, verbose=False) # Change verbose to true for robust logging 
+
+            # If class_ids_to_use is None, YOLO detects all.
+            detection_classes = attrs.get("classes", None)
+            if not detection_classes: 
+                self.logger.debug(f"Config variable classes not set. Default to all YOLO classes.")
+                self.detection_classes = None  # YOLO will detect all classes when None
+                self.class_names = self.model.names  # ← Keep as dict: {0: "person", 1: "bicycle", ...}
+                self.logger.info(f"No classes specified. Will detect all {len(self.class_names)} classes from model.")
+
+            else:
+                detection_classes = [int(item) for item in detection_classes]
                 
-            self.detection_classes = valid_classes
-            
-            # Create indexed mapping: class_names[class_id] = "class_name"
-            self.class_names = {id: self.model.names[id] for id in valid_classes}
-            
-            self.logger.info(f"Will detect {len(valid_classes)} specified classes: {list(self.class_names.values())}")
-        
-        # Only try to set up tracker if tracker_config_location is provided
-        tracker_config_location = attrs.get("tracker_config_location", None)
-        
-        if tracker_config_location:
-            try: 
-                self.TRACKER_PATH = tracker_config_location
-                self.logger.info("Tracker enabled and initialized")
+                # Validate classes exist in this model
+                valid_classes = [id for id in detection_classes if id in self.model.names]
+                invalid_classes = [id for id in detection_classes if id not in self.model.names]
                 
-                # Only set up zones if tracking is enabled
-                if "zones" in attrs: 
-                    self.zones = self.prepare_zones(attrs["zones"])
-                    self.logger.debug(f"Zones prepared: {self.zones}")
-                    # Initialize current tracks
-                    self.current_tracks = {zone: [] for zone in self.zones.keys()}
-                    self.current_tracks[WALK] = []
+                if invalid_classes:
+                    self.logger.warning(f"Invalid class IDs {invalid_classes} for this model. Available: {list(self.model.names.keys())}")
+                    
+                self.detection_classes = valid_classes
+                
+                # Create indexed mapping: class_names[class_id] = "class_name"
+                self.class_names = {id: self.model.names[id] for id in valid_classes}
+                
+                self.logger.info(f"Will detect {len(valid_classes)} specified classes: {list(self.class_names.values())}")
+            
+            # Initialize ReID configuration
+            self.reid_enabled = False
+            self.reid_config = {}
+            
+            # Only try to set up tracker if tracker_config_location is provided
+            tracker_config_location = attrs.get("tracker_config_location", None)
+
+            if tracker_config_location:
+                try: 
+                    self.TRACKER_PATH = tracker_config_location
+                    self.logger.info("Tracker enabled and initialized")
+                    self.tracking_enabled = True
+
+                    # Parse ReID configuration from tracker config
+                    try:
+                        self.reid_config = self._parse_tracker_config(tracker_config_location)
                         
-            except Exception as e:
-                raise Exception(f"Tracker configuration failed: {str(e)}") 
-        else:
-            self.logger.info("No tracker configured - detection only mode")
-    
-        # Check for CUDA (NVIDIA GPU)
-        if torch.cuda.is_available():
-            self.device = torch.cuda.current_device()
-            self.logger.info(f"Using CUDA device: {self.device}")
-        # Check for Mac Metal Performance Shaders (Apple Silicon)
-        elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-            self.device = "mps"
-            self.logger.info("Using Mac GPU (Metal Performance Shaders)")
-        else:
-            self.device = "cpu"
-            self.logger.info("Using CPU device")
+                        # Check if ReID is enabled
+                        if self.reid_config.get('with_reid', False):
+                            reid_model_path = self.reid_config.get('model')
+                            if reid_model_path:
+                                self.reid_enabled = True
+                                self.reid_model_path = reid_model_path
+                                
+                                # Log ReID configuration details
+                                reid_settings = {
+                                    'proximity_thresh': self.reid_config.get('proximity_thresh', 0.3),
+                                    'appearance_thresh': self.reid_config.get('appearance_thresh', 0.4),
+                                    'reid_weight': self.reid_config.get('reid_weight', 0.85),
+                                    'lambda_': self.reid_config.get('lambda_', 0.95),
+                                    'ema_alpha': self.reid_config.get('ema_alpha', 0.8),
+                                    'reid_batch_size': self.reid_config.get('reid_batch_size', 16),
+                                    'reid_max_distance': self.reid_config.get('reid_max_distance', 0.4)
+                                }
+                                
+                                self.logger.info(f"ReID enabled with model: {reid_model_path}")
+                                self.logger.debug(f"ReID settings: {reid_settings}")
+                            else:
+                                self.logger.warning("ReID enabled in config but no model path specified")
+                        else:
+                            self.logger.info("ReID disabled in tracker configuration")
+                            
+                    except Exception as e:
+                        self.logger.warning(f"Could not parse ReID config from tracker file: {e}")
+                        self.logger.info("Continuing with tracking without ReID configuration parsing")
+                            
+                except Exception as e:
+                    raise Exception(f"Tracker configuration failed: {str(e)}") 
+            else:
+                self.logger.info("No tracker configured - detection only mode")
+                self.tracking_enabled = False
 
+            # Set up zones if configured (independent of tracking)
+            if "zones" in attrs: 
+                self.zones = self.prepare_zones(attrs["zones"])
+                self.logger.debug(f"Zones prepared: {self.zones}")
+                self.zones_enabled = True
+                # Initialize current tracks for zones
+                self.current_tracks = {zone: [] for zone in self.zones.keys()}
+                self.current_tracks[WALK] = []
+            else:
+                self.logger.debug("No zones configured")
+                self.zones_enabled = False
         
-        return
+            # Check for CUDA (NVIDIA GPU)
+            self._detect_and_set_device()
 
-    @staticmethod
-    def prepare_zones(zones: Dict[str, List]) -> Dict[str, Polygon]:
+
+
+    def prepare_zones(self, zones_config: Dict[str, List]) -> Dict[str, Polygon]:
         """
         Convert zone coordinate data into Shapely Polygon objects.
 
         Args:
-            zones (Dict[str, List]): Dictionary where keys are zone names and values are 
-                                    lists of coordinates representing polygon vertices
+            zones_config (Dict[str, List]): Dictionary where keys are zone names and values are 
+                                       lists of coordinates representing polygon vertices
         Returns:
             Dict[str, Polygon]: Dictionary with Shapely Polygon objects as values
         """
         # Convert to Polygon arrays
-        for zone_name, polygon in zones.items():            
-            zones[zone_name] = Polygon(polygon)
+        prepared_zones = {}
+        for zone_name, polygon_coords in zones_config.items():            
+            prepared_zones[zone_name] = Polygon(polygon_coords)
 
-        return zones
+        return prepared_zones
 
 
 
@@ -732,18 +1011,20 @@ class Yolov8(Vision, EasyResource):
             object_point_clouds_supported=False
         )
     
+
     async def do_command(
-        self,
-        command: Mapping[str, ValueTypes],
-        *,
-        timeout: Optional[float] = None,
-        **kwargs
-    ) -> Mapping[str, ValueTypes]:
+    self,
+    command: Mapping[str, ValueTypes],
+    *,
+    timeout: Optional[float] = None,
+    **kwargs
+) -> Mapping[str, ValueTypes]:
         """
         Execute custom commands on the vision service.
         
-        Supports 'get_current_tracks' command to retrieve current tracking state
-        when tracking is enabled.
+        Supported commands:
+        - 'get_current_tracks': Retrieve current tracking state
+        - 'get_config_status': Get configuration status (what's enabled/disabled)
 
         Args:
             command (Mapping[str, ValueTypes]): Command dictionary with 'command' key
@@ -753,17 +1034,49 @@ class Yolov8(Vision, EasyResource):
         Returns:
             Mapping[str, ValueTypes]: Command result or error message
         """
-        # Creates object for tracking values at the current timestamp
-        if command.get("command") == "get_current_tracks":
-            # Log the current state labels
-            if not hasattr(self, 'TRACKER_PATH') or not self.TRACKER_PATH:            
-                self.logger.debug(f"Tracker is not enabled.")
+        
+        cmd = command.get("command", "").lower()
+        
+        if cmd == "get_current_tracks":
+            if not self.tracking_enabled:            
+                self.logger.debug("Tracker is not enabled.")
+                return {"current_tracks": {}, "tracker_enabled": False}
             else:
                 self.logger.debug(f"Current state labels: {self.current_tracks}")
-                # Return the current state labels
-                return {"current_tracks": self.current_tracks} 
-
-        else:
-            return {"error": "Command not recognized"}
+                return {
+                    "current_tracks": self.current_tracks,
+                    "tracker_enabled": True,
+                    "state_labels": getattr(self, 'state_labels', {})
+                }
         
-
+        elif cmd == "get_config_status":
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "features_enabled": {
+                    "tracking": self.tracking_enabled,
+                    "reid": self.reid_enabled,
+                    "zones": self.zones_enabled
+                },
+                "model_info": {
+                    "device": getattr(self, 'device', 'unknown'),
+                    "model_configured": hasattr(self, 'model') and self.model is not None,
+                    "camera_configured": hasattr(self, 'camera') and self.camera is not None,
+                    "total_classes": len(getattr(self, 'class_names', {}))
+                },
+                "reid_details": {
+                    "enabled": self.reid_enabled,
+                    "model_path": getattr(self, 'reid_model_path', None),
+                    "settings_count": len(getattr(self, 'reid_config', {}))
+                } if self.reid_enabled else {"enabled": False},
+                "zones_details": {
+                    "enabled": self.zones_enabled,
+                    "count": len(getattr(self, 'zones', {})),
+                    "zone_names": list(getattr(self, 'zones', {}).keys())
+                } if self.zones_enabled else {"enabled": False}
+            }
+        
+        else:
+            return {
+                "error": f"Command '{cmd}' not recognized", 
+                "available_commands": ["get_current_tracks", "get_config_status"]
+            }
