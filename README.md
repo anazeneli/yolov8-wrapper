@@ -1,3 +1,5 @@
+# YOLOv8 Module Documentation
+
 ## Module yolov8 
 This module provides YOLOv8-based object detection with optional tracking capabilities.
 It can operate in two modes:
@@ -5,13 +7,8 @@ It can operate in two modes:
 - **Detection-only mode**: Simple frame-by-frame person detection with sequential labeling (person_0, person_1, etc.)
 - **Tracking mode**: Maintains persistent object identities across frames with optional zone-based state classification
 
-
-
 ## Model azeneli:yolov8:yolov8
-The YOLOv8 model performs person detection and optionally tracks objects across multiple
-configurable zones, providing persistent tracking IDs and zone-based queue states when tracking mode is enabled.
-Features
-
+The YOLOv8 model performs person detection and optionally tracks objects across multiple configurable zones, providing persistent tracking IDs and zone-based queue states when tracking mode is enabled.
 
 ## Features
 
@@ -19,11 +16,14 @@ Features
 - **Dual Operation Modes**:
   - Detection-only: Simple sequential labeling without persistence
   - Tracking: Persistent IDs across frames with optional zone analysis
+- **Advanced Model Resolution**: Supports YAML configs, local files, Viam files, and automatic path resolution
+- **Custom Re-Identification (ReID)**: Support for custom ReID models including OSNet and contrastive learning models
+- **Configurable Class Detection**: Filter detection to specific object classes
 - **Zone-based State Classification**: Configurable polygon zones for queue management (tracking mode only)
 - **Queue State Monitoring**: Tracks person states (WAIT, SUCCESS, FAILURE, WALKING BY) when zones are configured
 - **Automatic Mode Selection**: Intelligently chooses detection vs tracking based on configuration
 - **Device Optimization**: Supports CUDA, MPS (Apple Silicon), and CPU inference
-
+- **Configuration Status Monitoring**: Real-time status checking for all enabled features
 
 ## Configuration
 The following attribute template can be used to configure this model:
@@ -33,6 +33,7 @@ The following attribute template can be used to configure this model:
   "camera_name": "<string>",
   "model_location": "<string>",
   "tracker_config_location": "<string>",
+  "classes": ["<class_id>"],
   "zones": {
     "zone_name": [
       [x1, y1],
@@ -43,36 +44,69 @@ The following attribute template can be used to configure this model:
 }
 ```
 
-Note: tracker_config_location and zones are optional attributes.
-
+Note: tracker_config_location, classes, and zones are optional attributes.
 
 ## Attributes
 
 | Name | Type | Inclusion | Description |
 |------|------|-----------|-------------|
 | camera_name | string | Required | Name of the camera component providing the video feed |
+| model_location | string | Optional | Path to the YOLOv8 model weights file (Defaults yolov8n.pt) |
 | tracker_config_location | string | Optional | Path to the tracker configuration YAML file (e.g., botsort.yaml) |
-| model_location | string | Optional | Path to the YOLOv8 model weights file (Defaults yolov8.pt) |
+| classes | array | Optional | List of class IDs to detect (defaults to all classes) |
 | zones | object | Optional | Dictionary of zone definitions with polygon coordinates |
-
 
 ## Operating Modes
 
 ### Detection-Only Mode
 
-- **Triggered when: No tracker_config_location provided**
-- **Output: Simple detection with class names like person_0, person_1**
-Use case: Basic person counting, simple detection applications
+- **Triggered when**: No tracker_config_location provided
+- **Output**: Simple detection with class names like person_0, person_1
+- **Use case**: Basic person counting, simple detection applications
 
 ### Tracking Mode
 
-- **Triggered when: tracker_config_location is provided**
-- **Without zones: Persistent tracking with class names like person_123**
-- **With zones: Full queue management with class names like 123_2 (track_id_state)**
-  - Use case: Queue analysis, person flow monitoring, zone-based analytics
+- **Triggered when**: tracker_config_location is provided
+- **Without zones**: Persistent tracking with class names like person_123
+- **With zones**: Full queue management with class names like 123_2 (track_id_state)
+- **Use case**: Queue analysis, person flow monitoring, zone-based analytics
 
+## Tracker Configuration (YAML)
+
+### Basic Tracker Config
+```yaml
+tracker_type: botsort
+track_high_thresh: 0.5
+track_low_thresh: 0.1
+new_track_thresh: 0.6
+track_buffer: 30
+match_thresh: 0.8
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+with_reid: false
+```
+
+### ReID-Enhanced Tracker Config
+```yaml
+tracker_type: botsort
+track_high_thresh: 0.5
+track_low_thresh: 0.1
+new_track_thresh: 0.6
+track_buffer: 30
+match_thresh: 0.8
+with_reid: true
+model: "/path/to/osnet_reid_model.pt"
+proximity_thresh: 0.3
+appearance_thresh: 0.4
+reid_weight: 0.85
+lambda_: 0.95
+ema_alpha: 0.8
+reid_batch_size: 16
+reid_max_distance: 0.4
+```
 
 ## Example Configuration
+
 ### Basic Detection (Detection-only mode)
 ```json
 {
@@ -81,12 +115,22 @@ Use case: Basic person counting, simple detection applications
 }
 ```
 
-### Tracking without Zones
+### Class-Filtered Detection
 ```json
 {
   "camera_name": "camera-1",
-  "model_location": "/path/to/weights/yolov8n.pt",
-  "tracker_config_location": "/path/to/configs/botsort.yaml"
+  "model_location": "yolov8s.pt",
+  "classes": ["0"]
+}
+```
+
+### ReID-Enhanced Tracking
+```json
+{
+  "camera_name": "camera-1",
+  "model_location": "yolov8m.pt",
+  "tracker_config_location": "/path/to/configs/botsort_reid.yaml",
+  "classes": ["0"]
 }
 ```
 
@@ -119,23 +163,68 @@ Use case: Basic person counting, simple detection applications
 }
 ```
 
-
 ## DoCommand
 
 ### get_current_tracks
 When tracking is enabled, you can retrieve current tracking state:
 
 ```python
-# Your Python code here
 result = await vision_service.do_command({"command": "get_current_tracks"})
 print(result)
 ```
 
-- **Returns current tracks organized by zone state when zones are configured.**
+**Returns current tracks organized by zone state when zones are configured.**
 
-### Output Examples
+### get_config_status
+Check the configuration status and verify what features are enabled:
+
+```python
+result = await vision_service.do_command({"command": "get_config_status"})
+print(result)
+```
+
+**Example Response:**
+```json
+{
+  "timestamp": "2025-08-18T17:04:28.123456",
+  "features_enabled": {
+    "tracking": true,
+    "reid": true,
+    "zones": false
+  },
+  "model_info": {
+    "device": "cuda:0",
+    "model_configured": true,
+    "camera_configured": true,
+    "total_classes": 1
+  },
+  "reid_details": {
+    "enabled": true,
+    "model_path": "/path/to/reid_model.pt",
+    "settings_count": 7
+  },
+  "zones_details": {
+    "enabled": false
+  }
+}
+```
+
+**Use cases:**
+- Verify ReID is properly enabled: `result['features_enabled']['reid']`
+- Check device being used: `result['model_info']['device']`
+- Confirm tracking configuration: `result['features_enabled']['tracking']`
+- Debug configuration issues
+
+## Output Examples
 The `class_name` field in Detection objects varies by mode:
 
 - **Detection-only**: `person_0`, `person_1`, `person_2` (sequential numbering)
 - **Tracking without zones**: `person_123`, `person_456` (persistent track IDs)
 - **Tracking with zones**: `123_1`, `456_0`, `789_2` (track_id_state_label format)
+
+## Available Commands
+
+| Command | Description | Returns |
+|---------|-------------|---------|
+| `get_current_tracks` | Get current tracking state (tracking mode only) | Current tracks by zone |
+| `get_config_status` | Get comprehensive configuration status | Feature flags, model info, ReID details |

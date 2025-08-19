@@ -35,6 +35,10 @@ make clean-pyinstaller
 make module.tar.gz
 ```
 
+# For LOCAL testing, replace 
+main.spec -> src/main.py
+
+
 ## Make Clean Explanations
 
 **DISCLAIMER: A COMPLETE CLEAN WILL TAKE 30 MINUTES**
