@@ -30,15 +30,25 @@ viam module upload --version x.x.x --platform linux/arm64 --tags 'jetpack:6' mod
 ## Makefile Options
 
 ```bash
-make pyinstaller
-make clean-pyinstaller
-make module.tar.gz
+make pyinstaller          # Build single-file executable using main.spec
+make clean-pyinstaller    # Clean PyInstaller build artifacts
+make clean-module         # Clean module packaging artifacts
+make module.tar.gz        # Package module for distribution
 ```
 
-# For LOCAL testing, replace 
-main.spec -> src/main.py
+## Build Configuration
 
+The build uses `main.spec` for PyInstaller configuration:
+- **Single file executable**: All dependencies bundled into one file
+- **ARM64 target**: Built for Jetson devices with JetPack 6
+- **Size**: ~1.8GB with PyTorch, YOLOv8, and all dependencies
 
 ## Make Clean Explanations
 
 **DISCLAIMER: A COMPLETE CLEAN WILL TAKE 30 MINUTES**
+
+```bash
+make clean                # Full clean (rebuilds PyTorch/TorchVision from source)
+make clean-pyinstaller    # Clean only PyInstaller artifacts (fast)
+make clean-module         # Clean only packaging artifacts (fast)
+```

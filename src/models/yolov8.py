@@ -113,7 +113,7 @@ STATES = [WALK, WAIT, SUCCESS, FAILURE]
 class Yolov8(Vision, EasyResource):
     # To enable debug-level logging, either run viam-server with the --debug option,
     # or configure your resource/machine to display debug logs.
-    MODEL: ClassVar[Model] = Model(ModelFamily("azeneli", "yolov8-wrapper"), "yolov8")
+    MODEL: ClassVar[Model] = Model(ModelFamily("azeneli", "yolov8"), "yolov8")
 
     def __init__(self, name: str) -> None:
         super().__init__(name=name)
