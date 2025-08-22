@@ -16,14 +16,13 @@ The YOLOv8 model performs person detection and optionally tracks objects across 
 - **Dual Operation Modes**:
   - Detection-only: Simple sequential labeling without persistence
   - Tracking: Persistent IDs across frames with optional zone analysis
-- **Advanced Model Resolution**: Supports YAML configs, local files, Viam files, and automatic path resolution
 - **Custom Re-Identification (ReID)**: Support for custom ReID models including OSNet and contrastive learning models
 - **Configurable Class Detection**: Filter detection to specific object classes
 - **Zone-based State Classification**: Configurable polygon zones for queue management (tracking mode only)
-- **Queue State Monitoring**: Tracks person states (WAIT, SUCCESS, FAILURE, WALKING BY) when zones are configured
+- **Queue State Monitoring**: Tracks person states (WAIT, SUCCESS, ABANDON, WALKING BY) when zones are configured
 - **Automatic Mode Selection**: Intelligently chooses detection vs tracking based on configuration
 - **Device Optimization**: Supports CUDA, MPS (Apple Silicon), and CPU inference
-- **Configuration Status Monitoring**: Real-time status checking for all enabled features
+- **Graceful Fallback**: Automatic fallback to detection-only mode if tracking fails
 
 ## Configuration
 The following attribute template can be used to configure this model:
@@ -105,6 +104,22 @@ reid_batch_size: 16
 reid_max_distance: 0.4
 ```
 
+## Zone Configuration
+
+When zones are configured, they must include specific zone names for queue management:
+
+- **WAIT**: Queue waiting area
+- **SUCCESS**: Successful completion area  
+- **ABANDON**: Abandonment/failure area
+- **ENTER**: Entry area
+
+The system maps these zones to state labels:
+- WAIT → State 1
+- SUCCESS → State 2  
+- ABANDON → State 3
+- ENTER → Entry tracking
+- Default → WALKING BY (State 0)
+
 ## Example Configuration
 
 ### Basic Detection (Detection-only mode)
@@ -152,12 +167,24 @@ reid_max_distance: 0.4
       [800, 874],
       [407, 584]
     ],
-    "ENTER": [
+    "WAIT": [
       [750, 899],
       [755, 791],
       [1108, 773],
       [1142, 897],
       [749, 913]
+    ],
+    "SUCCESS": [
+      [1200, 400],
+      [1400, 400], 
+      [1400, 600],
+      [1200, 600]
+    ],
+    "ENTER": [
+      [100, 100],
+      [300, 100],
+      [300, 300], 
+      [100, 300]
     ]
   }
 }
@@ -175,46 +202,6 @@ print(result)
 
 **Returns current tracks organized by zone state when zones are configured.**
 
-### get_config_status
-Check the configuration status and verify what features are enabled:
-
-```python
-result = await vision_service.do_command({"command": "get_config_status"})
-print(result)
-```
-
-**Example Response:**
-```json
-{
-  "timestamp": "2025-08-18T17:04:28.123456",
-  "features_enabled": {
-    "tracking": true,
-    "reid": true,
-    "zones": false
-  },
-  "model_info": {
-    "device": "cuda:0",
-    "model_configured": true,
-    "camera_configured": true,
-    "total_classes": 1
-  },
-  "reid_details": {
-    "enabled": true,
-    "model_path": "/path/to/reid_model.pt",
-    "settings_count": 7
-  },
-  "zones_details": {
-    "enabled": false
-  }
-}
-```
-
-**Use cases:**
-- Verify ReID is properly enabled: `result['features_enabled']['reid']`
-- Check device being used: `result['model_info']['device']`
-- Confirm tracking configuration: `result['features_enabled']['tracking']`
-- Debug configuration issues
-
 ## Output Examples
 The `class_name` field in Detection objects varies by mode:
 
@@ -222,9 +209,18 @@ The `class_name` field in Detection objects varies by mode:
 - **Tracking without zones**: `person_123`, `person_456` (persistent track IDs)
 - **Tracking with zones**: `123_1`, `456_0`, `789_2` (track_id_state_label format)
 
+## Error Handling and Fallback
+
+The module includes robust error handling:
+
+- **Tracking failures**: Automatically falls back to detection-only mode
+- **ReID compatibility issues**: Attempts model reload before fallback
+- **Invalid configurations**: Validates all parameters during setup
+- **Missing files**: Clear error messages for missing model or config files
+- **Device optimization**: Automatic selection of best available compute device
+
 ## Available Commands
 
 | Command | Description | Returns |
 |---------|-------------|---------|
 | `get_current_tracks` | Get current tracking state (tracking mode only) | Current tracks by zone |
-| `get_config_status` | Get comprehensive configuration status | Feature flags, model info, ReID details |
