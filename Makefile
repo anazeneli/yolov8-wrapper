@@ -47,20 +47,23 @@ $(BUILD)/$(TORCHVISION_WHEEL): $(VENV_DIR) $(BUILD)/$(PYTORCH_WHEEL)
 	cd $(BUILD)/torchvision && $(PYTHON) setup.py --verbose bdist_wheel --dist-dir ../
 
 torchvision-wheel: $(BUILD)/$(TORCHVISION_WHEEL)
-
+ 
 $(PYINSTALLER_DISTPATH)/main: $(BUILD)/$(TORCHVISION_WHEEL) 
 	@echo " Building pyinstaller executable"
 	$(PYTHON) -m pip install -r $(REQUIREMENTS)
 	$(PYTHON) -m pip install 'numpy<2' $(BUILD)/$(PYTORCH_WHEEL)
 	$(PYTHON) -m pip install $(BUILD)/$(TORCHVISION_WHEEL)
-	$(PYTHON) -m PyInstaller --workpath "$(PYINSTALLER_WORKPATH)" --distpath "$(PYINSTALLER_DISTPATH)" src/main.py
+	$(PYTHON) -m PyInstaller --workpath "$(PYINSTALLER_WORKPATH)" --distpath "$(PYINSTALLER_DISTPATH)" main.spec
 
 pyinstaller: $(PYINSTALLER_DISTPATH)/main
 
 clean-pyinstaller:
 	rm -rf $(PYINSTALLER_DISTPATH) $(PYINSTALLER_WORKPATH)
 
-module.tar.gz: $(PYINSTALLER_DISTPATH)/main
+clean-module:
+	rm -rf ./main module.tar.gz
+	
+module.tar.gz: clean-module $(PYINSTALLER_DISTPATH)/main
 	cp $(PYINSTALLER_DISTPATH)/main ./
 	tar -czvf module.tar.gz main meta.json first_run.sh
 
