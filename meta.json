@@ -13,7 +13,6 @@
     }
   ],
   "applications": [],
-  "markdown_link": "README.md",
   "entrypoint": "main",
   "first_run": "first_run.sh"
 }

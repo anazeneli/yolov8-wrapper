@@ -65,7 +65,7 @@ clean-module:
 	
 module.tar.gz: clean-module $(PYINSTALLER_DISTPATH)/main
 	cp $(PYINSTALLER_DISTPATH)/main ./
-	tar -czvf module.tar.gz main meta.json first_run.sh
+	tar -czvf module.tar.gz main meta.json first_run.sh README.md
 
 setup: torchvision-wheel 
 
